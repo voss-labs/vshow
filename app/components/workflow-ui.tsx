@@ -1,5 +1,6 @@
 // Small presentational pieces shared by the convener and reviewer pages. No data access here.
-import { formatCampus } from "../submissions/time.ts";
+import { describeIssue } from "../submissions/issues.ts";
+import { formatCampus, toCampusInputValue } from "../submissions/time.ts";
 import type { AuditView, DecisionView, RevisionView, VersionView, WindowView } from "../submissions/queries.server.ts";
 import { useNavigation } from "react-router";
 import { Notice, Spinner } from "./ui.tsx";
@@ -73,9 +74,7 @@ export function ErrorNotice({
         {error.issues && error.issues.length > 0 && (
           <ul className="mt-1 list-disc pl-5">
             {error.issues.map((i, n) => (
-              <li key={`${i.path}-${i.code}-${n}`}>
-                {i.path || "form"}: {i.code.replaceAll("_", " ")}
-              </li>
+              <li key={`${i.path}-${i.code}-${n}`}>{describeIssue(i.path, i.code)}</li>
             ))}
           </ul>
         )}
@@ -85,6 +84,31 @@ export function ErrorNotice({
 }
 
 const Muted = ({ children }: { children: React.ReactNode }) => <p className="text-dim">{children}</p>;
+
+const dayFormat = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium" });
+
+/** From/Until cells; a window from 00:00 to 23:59 is shown as whole days. */
+function WindowTimes({ startAt, endAt }: { startAt: string | null; endAt: string | null }) {
+  const allDay =
+    startAt !== null &&
+    endAt !== null &&
+    toCampusInputValue(startAt).endsWith("T00:00") &&
+    toCampusInputValue(endAt).endsWith("T23:59");
+  if (allDay) {
+    return (
+      <>
+        <td className="tabular">{dayFormat.format(new Date(startAt))} · all day</td>
+        <td className="tabular">{dayFormat.format(new Date(endAt))} · all day</td>
+      </>
+    );
+  }
+  return (
+    <>
+      <td className="tabular">{startAt ? formatCampus(startAt) : "—"}</td>
+      <td className="tabular">{endAt ? formatCampus(endAt) : "—"}</td>
+    </>
+  );
+}
 
 export function WindowsTable({ windows }: { windows: WindowView[] }) {
   if (windows.length === 0) return <Muted>No display windows requested.</Muted>;
@@ -106,8 +130,7 @@ export function WindowsTable({ windows }: { windows: WindowView[] }) {
                 {w.screenName}
                 {w.slotNumber > 1 ? <span className="mono text-dim"> #{w.slotNumber}</span> : null}
               </td>
-              <td className="tabular">{w.startAt ? formatCampus(w.startAt) : "—"}</td>
-              <td className="tabular">{w.endAt ? formatCampus(w.endAt) : "—"}</td>
+              <WindowTimes startAt={w.startAt} endAt={w.endAt} />
               <td className="text-dim">{w.note ?? ""}</td>
             </tr>
           ))}

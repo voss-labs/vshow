@@ -195,3 +195,40 @@ describe("admin user management", () => {
     assert.equal((await h.actor("unassigned")).memberships.length, 0);
   });
 });
+
+describe("admin adds a person to a committee that does not exist yet", () => {
+  it("creates the committee by name, reuses an existing one, and rejects bad input", opts, async () => {
+    const admin = await h.actor("admin");
+    const target = await idOf("unassigned");
+    await setMembership(h.deps, admin, target, {
+      newCommitteeName: " Sports  Council ",
+      membershipType: "CONVENER",
+      active: true,
+    });
+    await setMembership(h.deps, admin, await idOf("member"), {
+      newCommitteeName: "sports council",
+      membershipType: "MEMBER",
+      active: true,
+    });
+    const rows = await h.q<{ code: string; n: string }>(
+      "select c.code, count(m.id)::text n from committee c join committee_membership m on m.committee_id=c.id where lower(c.name)='sports council' group by c.code",
+    );
+    assert.deepEqual(rows, [{ code: "sports-council", n: "2" }]);
+    await expectCode(
+      setMembership(h.deps, admin, target, { membershipType: "MEMBER", active: true }),
+      "validation_failed",
+    );
+    await expectCode(
+      setMembership(h.deps, admin, target, {
+        newCommitteeName: "x".repeat(121),
+        membershipType: "MEMBER",
+        active: true,
+      }),
+      "validation_failed",
+    );
+    await expectCode(
+      setMembership(h.deps, admin, target, { newCommitteeName: "Never", active: false }),
+      "validation_failed",
+    );
+  });
+});

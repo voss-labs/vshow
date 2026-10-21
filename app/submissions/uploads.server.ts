@@ -17,6 +17,8 @@ import { and, count, eq, lt, sql } from "drizzle-orm";
 import type { CurrentUser } from "../auth/authorize.server.ts";
 import { mediaVersion, submission, submissionRevision, uploadReservation } from "../db/schema/submissions.ts";
 import type { WorkflowStatus } from "../db/schema/values.ts";
+import { analyzeStoredMedia } from "../media/analyze.server.ts";
+import { failedChecks } from "../media/analysis.ts";
 import { SIGNATURE_BYTES, detectMime, extensionFor, isAllowedMime, sanitizeFilename } from "../storage/file-types.ts";
 import { finalKey, stagingKey } from "../storage/keys.server.ts";
 import { StorageUnavailableError, type UploadTarget } from "../storage/object-storage.server.ts";
@@ -152,7 +154,7 @@ type Outcome =
   | { kind: "again"; result: FinalizedVersion }
   | { kind: "missing" }
   | { kind: "expired"; cleanup: string[] }
-  | { kind: "rejected"; reason: string; cleanup: string[] };
+  | { kind: "rejected"; reason: string; codes: string[]; cleanup: string[] };
 
 export async function finalizeUpload(
   deps: WorkflowDeps,
@@ -196,13 +198,13 @@ export async function finalizeUpload(
         return { kind: "expired", cleanup: [res.stagingKey] };
       }
 
-      const reject = async (reason: string): Promise<Outcome> => {
+      const reject = async (reason: string, codes: string[] = [reason]): Promise<Outcome> => {
         await tx
           .update(uploadReservation)
           .set({ status: "REJECTED", failureReason: reason })
           .where(eq(uploadReservation.id, res.id));
         deps.logger.warn("upload rejected", { submissionId: row.id, reservationId: res.id, reason });
-        return { kind: "rejected", reason, cleanup: [res.stagingKey, res.finalKey] };
+        return { kind: "rejected", reason, codes, cleanup: [res.stagingKey, res.finalKey] };
       };
 
       // Cheap pre-checks on the staging object (it may be replaced later; they only avoid pointless copies).
@@ -227,6 +229,18 @@ export async function finalizeUpload(
       const head = await storage.readHead(res.finalKey, SIGNATURE_BYTES);
       if (detectMime(head) !== res.declaredContentType) return reject("signature_mismatch");
 
+      // Describe the file and check its structure (dimensions, aspect ratio, truncation, hidden data, decompression
+      // bombs...). A file that fails a hard check is not recorded. Everything else is kept for the reviewer to see.
+      const analysis = await analyzeStoredMedia(storage, res.finalKey, res.declaredContentType, final.size, {
+        maxPixels: deps.media.maxPixels,
+      });
+      const failed = failedChecks(analysis);
+      if (failed.length > 0)
+        return reject(
+          failed[0].code,
+          failed.map((c) => c.code),
+        );
+
       // Valid. Record the version, make it current, and audit it, still under the same locks.
       const [latest] = await tx
         .select({ n: sql<number>`coalesce(max(${mediaVersion.versionNumber}), 0)::int` })
@@ -242,6 +256,7 @@ export async function finalizeUpload(
         contentType: res.declaredContentType,
         sizeBytes: final.size,
         storageEtag: final.etag,
+        mediaInfo: analysis,
         uploadedByUserId: actor.id,
         uploadedAt: now,
       });
@@ -302,7 +317,10 @@ export async function finalizeUpload(
       throw new WorkflowError("upload_closed");
     case "rejected":
       await deleteUnreferenced(deps, outcome.cleanup);
-      throw new WorkflowError("upload_rejected", [{ path: "file", code: outcome.reason }]);
+      throw new WorkflowError(
+        "upload_rejected",
+        outcome.codes.map((code) => ({ path: "file", code })),
+      );
   }
 }
 
@@ -369,6 +387,11 @@ export async function sweepAbandonedUploads(
 
 export interface DownloadPurpose {
   as: "convener" | "reviewer" | "manager";
+  /**
+   * Serve the file for in-page viewing (an <img> or <video>) instead of as a download. The same people may see the
+   * same versions; only the Content-Disposition and the URL lifetime differ.
+   */
+  inline?: boolean;
 }
 
 /**
@@ -384,7 +407,7 @@ export async function createMediaDownloadUrl(
   actor: CurrentUser,
   submissionId: string,
   versionId: string,
-  { as }: DownloadPurpose,
+  { as, inline = false }: DownloadPurpose,
 ): Promise<string> {
   if (!isUuid(versionId)) throw notFound();
   const db = deps.database.get();
@@ -420,7 +443,8 @@ export async function createMediaDownloadUrl(
       // A server-built name: never the uploader's filename.
       filename: `${sub.referenceCode}-v${version.versionNumber}.${ext}`,
       contentType: version.contentType,
-      ttlSeconds: deps.media.downloadUrlTtlSeconds,
+      ttlSeconds: inline ? deps.media.previewUrlTtlSeconds : deps.media.downloadUrlTtlSeconds,
+      disposition: inline ? "inline" : "attachment",
     });
   });
 }

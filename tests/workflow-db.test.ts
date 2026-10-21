@@ -301,7 +301,7 @@ describe("migration 0004 upgrade safety", async () => {
       }
       // and the health check reports the migration as pending, so the operator is told what to do
       const health = runNode(["scripts/db-health.ts"], env());
-      assert.match(health.stdout + health.stderr, /4 applied, 1 pending/);
+      assert.match(health.stdout + health.stderr, /4 applied, 2 pending/);
     },
   );
 });
@@ -345,7 +345,7 @@ describe("migration 0004 upgrade over data without decisions", async () => {
         DATABASE_URL_DIRECT: "",
       });
       assert.equal(r.status, 0, r.stderr || r.stdout);
-      assert.match(r.stdout, /Applied 1 migration/);
+      assert.match(r.stdout, /Applied 2 migration/);
       const c2 = new pg.Client({ connectionString: db.url });
       await c2.connect();
       try {

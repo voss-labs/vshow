@@ -14,6 +14,7 @@ function navFor(roles: readonly string[]): NavItem[] {
   if (roles.includes("CONVENER")) items.push({ to: "/submissions", label: "My submissions" });
   if (roles.includes("REVIEWER")) items.push({ to: "/review", label: "Review queue" });
   if (roles.includes("SERVER_ROOM_MANAGER")) items.push({ to: "/manager", label: "Server room" });
+  if (roles.includes("REVIEWER") || roles.includes("ADMIN")) items.push({ to: "/requests", label: "Access requests" });
   if (roles.includes("ADMIN")) items.push({ to: "/admin", label: "Users" });
   return items;
 }

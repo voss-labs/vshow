@@ -20,14 +20,22 @@ import { WorkflowError, notFound, type FieldIssue } from "./errors.ts";
 import { assertTransition, isEditable, isSubmittable } from "./policy.ts";
 import { createDraftSchema, issuesOf, saveDraftSchema } from "./schemas.ts";
 import { campusYear } from "./time.ts";
-import { assignSlots, futureIssues, parseWindows, windowsFingerprint, type ParsedWindow } from "./windows.ts";
+import {
+  ALL_SCREENS,
+  assignSlots,
+  expandAllScreens,
+  futureIssues,
+  parseWindows,
+  windowsFingerprint,
+  type ParsedWindow,
+} from "./windows.ts";
 
 const asStatus = (s: string) => s as WorkflowStatus;
 const blank = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
 
 /** Every window must name an existing, active screen. Unknown and inactive screens are indistinguishable on purpose. */
 async function screenIssues(tx: Tx, windows: readonly { screenId: string }[]): Promise<FieldIssue[]> {
-  const ids = [...new Set(windows.map((w) => w.screenId))];
+  const ids = [...new Set(windows.map((w) => w.screenId).filter((id) => id !== ALL_SCREENS))];
   if (ids.length === 0) return [];
   const usable = new Set(
     (
@@ -39,7 +47,8 @@ async function screenIssues(tx: Tx, windows: readonly { screenId: string }[]): P
   );
   const issues: FieldIssue[] = [];
   windows.forEach((w, i) => {
-    if (!usable.has(w.screenId)) issues.push({ path: `windows.${i}.screenId`, code: "screen_unavailable" });
+    if (w.screenId !== ALL_SCREENS && !usable.has(w.screenId))
+      issues.push({ path: `windows.${i}.screenId`, code: "screen_unavailable" });
   });
   return issues;
 }
@@ -127,7 +136,7 @@ export async function saveDraft(
   const parsed = saveDraftSchema.safeParse(input);
   if (!parsed.success) throw new WorkflowError("validation_failed", issuesOf(parsed.error));
   const { windows: windowInputs, title, description } = parsed.data;
-  const { windows, issues } = parseWindows(windowInputs, { maxWindows: deps.media.maxWindows });
+  const { windows: entered, issues } = parseWindows(windowInputs, { maxWindows: deps.media.maxWindows });
   if (issues.length) throw new WorkflowError("validation_failed", issues);
 
   const db = deps.database.get();
@@ -135,8 +144,18 @@ export async function saveDraft(
     const row = await loadForConvener(tx, actor, submissionId, true);
     const status = asStatus(row.workflowStatus);
     if (!isEditable(status)) throw new WorkflowError("invalid_state");
-    const bad = await screenIssues(tx, windows);
+    const bad = await screenIssues(tx, entered);
     if (bad.length) throw new WorkflowError("validation_failed", bad);
+    let windows = entered;
+    if (entered.some((w) => w.screenId === ALL_SCREENS)) {
+      const active = (
+        await tx.select({ id: screen.id }).from(screen).where(eq(screen.isActive, true)).orderBy(asc(screen.code))
+      ).map((r) => r.id);
+      if (active.length === 0) {
+        throw new WorkflowError("validation_failed", [{ path: "windows", code: "screen_unavailable" }]);
+      }
+      windows = expandAllScreens(entered, active);
+    }
 
     const existing = await workingWindows(tx, row.id);
     const changedFields: string[] = [];

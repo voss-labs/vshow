@@ -1,6 +1,7 @@
 // Read models for the pages. Each function authorizes against the actual submission (loadForConvener /
 // loadForReviewer) before it reads anything else about it, so nothing is fetched for a caller who may not see it.
 import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import type { MediaAnalysis } from "../media/analysis.ts";
 import type { CurrentUser } from "../auth/authorize.server.ts";
 import type { Db } from "../db/client.server.ts";
 import { committee, screen } from "../db/schema/campus.ts";
@@ -39,6 +40,8 @@ export interface VersionView {
   uploadedByName: string;
   changeNote: string | null;
   isCurrent: boolean;
+  /** What the file was found to be at upload (dimensions, aspect ratio, checks). Null for older versions. */
+  info: MediaAnalysis | null;
 }
 
 export interface RevisionView {
@@ -189,6 +192,7 @@ export async function versionsOf(db: Db, row: SubmissionRow, onlyIds?: string[])
     uploadedByName: uploader,
     changeNote: v.changeNote,
     isCurrent: v.id === row.currentVersionId,
+    info: v.mediaInfo ?? null,
   }));
 }
 

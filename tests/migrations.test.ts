@@ -114,7 +114,7 @@ describe("migrations against a disposable local database", async () => {
   it("applies all migrations", opts, () => {
     const r = runNode(["scripts/db-migrate.ts"], env());
     assert.equal(r.status, 0, r.stderr || r.stdout);
-    assert.match(r.stdout, /Applied 5 migration/);
+    assert.match(r.stdout, /Applied 6 migration/);
   });
 
   it(
@@ -239,7 +239,7 @@ describe("migrations against a disposable local database", async () => {
     const r = runNode(["scripts/db-health.ts"], env());
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /Connected to 127\.0\.0\.1/);
-    assert.match(r.stdout, /5 applied, 0 pending/);
+    assert.match(r.stdout, /6 applied, 0 pending/);
     assert.ok(!r.stdout.includes(new URL(testUrl).password));
   });
 

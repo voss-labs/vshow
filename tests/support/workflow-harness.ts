@@ -12,13 +12,15 @@ import { ROLE_CODES, type MembershipType, type RoleCode } from "../../app/db/sch
 import type { WorkflowDeps } from "../../app/submissions/access.server.ts";
 import { DEFAULT_MEDIA_POLICY, type MediaPolicy } from "../../app/submissions/media-policy.server.ts";
 import { captureLogs, createThrowawayDb, runNode } from "../helpers.ts";
+import { buildJpeg, buildMp4, buildPng } from "./media-builders.ts";
 import { createMemoryStorage, type MemoryStorage } from "./memory-storage.ts";
 
-export const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4, 5, 6, 7, 8]);
-export const PNG2 = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9, 9, 9, 9, 9, 9, 9]);
-export const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1]);
+// Valid synthetic files (the finalize step parses them). PNG and PNG2 have the same length but different dimensions.
+export const PNG = buildPng({ width: 1920, height: 1080 });
+export const PNG2 = buildPng({ width: 1280, height: 720 });
+export const JPEG = buildJpeg({ width: 1080, height: 1920 });
 export const HTML = Uint8Array.from(Buffer.from("<html><script>alert(1)</script></html>"));
-export const MP4 = Uint8Array.from([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0]);
+export const MP4 = buildMp4({ width: 1920, height: 1080, durationSeconds: 12, fps: 30, audio: true });
 
 /** Everyone is created once per harness; names say what they are. */
 export type PersonKey =
