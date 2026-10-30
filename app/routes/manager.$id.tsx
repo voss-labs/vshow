@@ -2,6 +2,8 @@ import { Form, Link, redirect, useActionData } from "react-router";
 import type { Route } from "./+types/manager.$id";
 import { assertSameOrigin, requireRole } from "../auth/authorize.server";
 import { AppShell } from "../components/app-header";
+import { MediaDetails } from "../components/media-details";
+import { MediaPreview } from "../components/media-preview";
 import { Notice, PageHeader, Section } from "../components/ui";
 import { ErrorNotice, SubmitButton, VersionList, WindowsTable } from "../components/workflow-ui";
 import { getRequestScope } from "../server/request-scope.server";
@@ -67,7 +69,11 @@ export default function ManagerSubmission({ loaderData }: Route.ComponentProps) 
             </Section>
           )}
           <Section id="media" title="Approved media" description="Download this exact file and put it on the screens.">
-            <VersionList submissionId={s.id} versions={s.version ? [s.version] : []} />
+            <div className="space-y-6">
+              {s.version && <MediaPreview key={s.version.id} submissionId={s.id} version={s.version} />}
+              {s.version && <MediaDetails info={s.version.info} sizeBytes={s.version.sizeBytes} />}
+              <VersionList submissionId={s.id} versions={s.version ? [s.version] : []} />
+            </div>
           </Section>
           <Section
             id="windows"

@@ -18,6 +18,8 @@ import {
   initUpload,
   sweepAbandonedUploads,
 } from "../app/submissions/uploads.server.ts";
+import type { MediaAnalysis } from "../app/media/analysis.ts";
+import { buildJpeg, buildPng } from "./support/media-builders.ts";
 import { HTML, JPEG, MP4, PNG, PNG2, createWorkflowHarness, type PersonKey } from "./support/workflow-harness.ts";
 
 const h = await createWorkflowHarness("vshow_test_wfup");
@@ -284,7 +286,7 @@ describe("finalizing an upload", () => {
     ({ id, i }) =>
       h.storage.put(
         `staging/${id}/${i.reservationId}`,
-        new Uint8Array([...JPEG, 0, 0, 0, 0]).slice(0, PNG.length),
+        Uint8Array.from({ length: PNG.length }, (_, n) => JPEG[n] ?? 0),
         "image/png",
       ),
     "signature_mismatch",
@@ -398,6 +400,81 @@ describe("finalizing an upload", () => {
     await submitForReview(h.deps, a, pending.id, NOW);
     await expectCode(finalizeUpload(h.deps, a, pending.id, k.reservationId), "invalid_state");
     assert.equal((await versions(pending.id)).length, 1);
+  });
+});
+
+describe("file analysis at finalize", () => {
+  const info = async (id: string) =>
+    (
+      await h.q<{ media_info: MediaAnalysis | null }>("select media_info from media_version where submission_id=$1", [
+        id,
+      ])
+    )[0].media_info!;
+  const codesOf = (i: MediaAnalysis, level: string) => i.checks.filter((c) => c.level === level).map((c) => c.code);
+
+  it("records dimensions, aspect ratio and checks with the version", opts, async () => {
+    const m = await withMedia();
+    const i = await info(m.id);
+    assert.equal(i.width, 1920);
+    assert.equal(i.height, 1080);
+    assert.equal(i.aspect.label, "16:9");
+    assert.equal(i.format, "PNG");
+  });
+
+  it("records video details for an MP4 and the displayed size for a rotated JPEG", opts, async () => {
+    const v = await info((await withMedia("convener", MP4, "video/mp4")).id);
+    assert.equal(v.kind, "video");
+    assert.equal(v.video?.durationSeconds, 12);
+    assert.equal(v.video?.hasAudio, true);
+    const bytes = buildJpeg({ width: 1920, height: 1080, orientation: 6 });
+    const j = await info((await withMedia("convener", bytes, "image/jpeg")).id);
+    assert.equal(j.width, 1080);
+    assert.equal(j.height, 1920);
+  });
+
+  it("rejects a decompression-bomb image and a truncated image: nothing recorded, objects removed", opts, async () => {
+    for (const [bytes, code] of [
+      [buildPng({ width: 20000, height: 20000 }), "too_many_pixels"],
+      [buildPng({ width: 1920, height: 1080, truncated: true }), "truncated_file"],
+    ] as const) {
+      const s = await newDraft();
+      const i = await init("convener", s.id, bytes);
+      h.storage.upload(i.upload, bytes);
+      await assert.rejects(finalizeUpload(h.deps, await h.actor("convener"), s.id, i.reservationId), (e: unknown) => {
+        assert.ok(e instanceof WorkflowError && e.code === "upload_rejected");
+        assert.ok(e.issues.some((x) => x.code === code));
+        return true;
+      });
+      assert.deepEqual(await versions(s.id), []);
+      assert.equal((await reservation(i.reservationId)).status, "REJECTED");
+      assert.ok(
+        !h.storage.has(`staging/${s.id}/${i.reservationId}`) && !h.storage.has(`media/${s.id}/${i.reservationId}.png`),
+      );
+    }
+  });
+
+  it("accepts files with warnings (trailing data, GPS) and stores the warnings", opts, async () => {
+    const a = await info(
+      (await withMedia("convener", buildPng({ width: 1920, height: 1080, trailing: new Uint8Array(40).fill(1) }))).id,
+    );
+    assert.ok(codesOf(a, "warn").includes("trailing_data"));
+    const b = await info(
+      (await withMedia("convener", buildJpeg({ width: 1920, height: 1080, gps: true }), "image/jpeg")).id,
+    );
+    assert.ok(codesOf(b, "warn").includes("location_metadata"));
+  });
+
+  it("uses the configured pixel limit", opts, async () => {
+    h.setMedia({ maxPixels: 1_000_000 });
+    try {
+      const bytes = buildPng({ width: 2000, height: 1000 });
+      const s = await newDraft();
+      const i = await init("convener", s.id, bytes);
+      h.storage.upload(i.upload, bytes);
+      await expectCode(finalizeUpload(h.deps, await h.actor("convener"), s.id, i.reservationId), "upload_rejected");
+    } finally {
+      h.setMedia({ maxPixels: 100_000_000 });
+    }
   });
 });
 
@@ -701,6 +778,68 @@ describe("downloads", () => {
       createMediaDownloadUrl(h.deps, await h.actor("manager"), sub.id, v1.id, { as: "reviewer" }),
       "not_found",
     );
+  });
+
+  it(
+    "a preview is the same authorization with an inline disposition and the longer preview lifetime",
+    opts,
+    async () => {
+      const m = await withMedia();
+      const [v] = await versions(m.id);
+      const convener = await h.actor("convener2");
+      const download = await createMediaDownloadUrl(h.deps, convener, m.id, v.id, { as: "convener" });
+      const preview = await createMediaDownloadUrl(h.deps, convener, m.id, v.id, { as: "convener", inline: true });
+      const d = h.storage.optionsOfDownloadUrl(download);
+      const p = h.storage.optionsOfDownloadUrl(preview);
+      assert.equal(d?.disposition, "attachment");
+      assert.equal(d?.ttlSeconds, h.deps.media.downloadUrlTtlSeconds);
+      assert.equal(p?.disposition, "inline");
+      assert.equal(p?.ttlSeconds, h.deps.media.previewUrlTtlSeconds);
+      assert.ok((p?.ttlSeconds ?? 0) > (d?.ttlSeconds ?? 0));
+      assert.equal(p?.contentType, "image/png", "the validated type, never the uploader's");
+      assert.equal(h.storage.keyOfDownloadUrl(preview), v.object_key, "the FINAL key, never the staging key");
+      assert.match(p?.filename ?? "", /^VS-\d{4}-\d{6}-v1\.png$/, "a server-built file name, not the uploader's");
+    },
+  );
+
+  it("unauthorized callers get 'not found' for a preview too and never reach storage", opts, async () => {
+    const m = await withMedia();
+    const [v] = await versions(m.id);
+    h.resetStorageCalls();
+    for (const who of ["convenerOther", "lapsed", "member", "reviewer", "admin", "unassigned"] as PersonKey[]) {
+      await expectCode(
+        createMediaDownloadUrl(h.deps, await h.actor(who), m.id, v.id, { as: "convener", inline: true }),
+        "not_found",
+      );
+    }
+    assert.deepEqual(h.storage.calls, []);
+  });
+
+  it("a reviewer can preview only versions that were submitted, never a draft's", opts, async () => {
+    const rv = await h.actor("reviewer");
+    const draft = await withMedia();
+    const [dv] = await versions(draft.id);
+    await expectCode(
+      createMediaDownloadUrl(h.deps, rv, draft.id, dv.id, { as: "reviewer", inline: true }),
+      "not_found",
+    );
+    const sub = await submittedWithMedia();
+    const [v1] = await versions(sub.id);
+    const url = await createMediaDownloadUrl(h.deps, rv, sub.id, v1.id, { as: "reviewer", inline: true });
+    assert.equal(h.storage.optionsOfDownloadUrl(url)?.disposition, "inline");
+    assert.equal(h.storage.keyOfDownloadUrl(url), v1.object_key);
+  });
+
+  it("a preview of tampered media is refused like a download, and no URL is created", opts, async () => {
+    const m = await withMedia();
+    const [v] = await versions(m.id);
+    h.storage.put(v.object_key, PNG2, "image/png");
+    h.resetStorageCalls();
+    await expectCode(
+      createMediaDownloadUrl(h.deps, await h.actor("convener"), m.id, v.id, { as: "convener", inline: true }),
+      "integrity_mismatch",
+    );
+    assert.ok(!h.storage.calls.some((c) => c.method === "createDownloadUrl"));
   });
 
   it("media that no longer matches what was recorded is never served", opts, async () => {

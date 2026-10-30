@@ -8,6 +8,7 @@ import { committee, committeeMembership } from "../db/schema/campus.ts";
 import { appRole, appUser, userRole } from "../db/schema/identity.ts";
 import { MEMBERSHIP_TYPES, ROLE_CODES, type MembershipType, type RoleCode } from "../db/schema/values.ts";
 import { isUuid, type WorkflowDeps } from "../submissions/access.server.ts";
+import { cleanCommitteeName, COMMITTEE_NAME_MAX, resolveCommitteeId } from "./access.server.ts";
 import { WorkflowError, notFound } from "../submissions/errors.ts";
 
 const assertAdmin = (actor: CurrentUser) => {
@@ -107,7 +108,7 @@ export async function getUserDetail(db: Db, actor: CurrentUser, userId: string):
   };
 }
 
-const invalid = (path: string) => new WorkflowError("validation_failed", [{ path, code: "invalid" }]);
+const invalid = (path: string, code = "invalid") => new WorkflowError("validation_failed", [{ path, code }]);
 
 export async function setRole(
   deps: WorkflowDeps,
@@ -142,22 +143,29 @@ export async function setMembership(
   deps: WorkflowDeps,
   actor: CurrentUser,
   userId: string,
-  input: { committeeId: unknown; membershipType?: unknown; active: boolean },
+  input: { committeeId?: unknown; newCommitteeName?: unknown; membershipType?: unknown; active: boolean },
 ): Promise<void> {
   assertAdmin(actor);
   if (!isUuid(userId)) throw notFound();
-  if (typeof input.committeeId !== "string" || !isUuid(input.committeeId)) throw invalid("committeeId");
+  const chosen = typeof input.committeeId === "string" && input.committeeId !== "" ? input.committeeId : null;
+  const newName = cleanCommitteeName(input.newCommitteeName);
+  // Creating a committee is only possible while adding someone to it.
+  const creating = input.active && !chosen && newName !== "";
+  if (chosen ? !isUuid(chosen) : !creating) throw invalid("committeeId");
+  if (creating && newName.length > COMMITTEE_NAME_MAX) throw invalid("newCommitteeName", "too_long");
   const type = input.membershipType;
   if (input.active && (typeof type !== "string" || !(MEMBERSHIP_TYPES as readonly string[]).includes(type))) {
     throw invalid("membershipType");
   }
-  const committeeId = input.committeeId;
-
   await deps.database.get().transaction(async (tx) => {
     const [user] = await tx.select({ id: appUser.id }).from(appUser).where(eq(appUser.id, userId)).limit(1);
-    const [com] = await tx.select({ id: committee.id }).from(committee).where(eq(committee.id, committeeId)).limit(1);
-    if (!user || !com) throw notFound();
+    if (!user) throw notFound();
     if (input.active) {
+      if (chosen) {
+        const [com] = await tx.select({ id: committee.id }).from(committee).where(eq(committee.id, chosen)).limit(1);
+        if (!com) throw notFound();
+      }
+      const committeeId = await resolveCommitteeId(tx, chosen, newName);
       await tx
         .insert(committeeMembership)
         .values({ committeeId, userId, membershipType: type as string, isActive: true, assignedByUserId: actor.id })
@@ -166,6 +174,9 @@ export async function setMembership(
           set: { membershipType: type as string, isActive: true, assignedByUserId: actor.id },
         });
     } else {
+      const committeeId = chosen as string;
+      const [com] = await tx.select({ id: committee.id }).from(committee).where(eq(committee.id, committeeId)).limit(1);
+      if (!com) throw notFound();
       // Memberships are ended, never deleted: submissions may reference the committee.
       await tx
         .update(committeeMembership)

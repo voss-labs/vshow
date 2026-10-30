@@ -35,6 +35,7 @@ export function createStorage(env: Env, logger: Logger): ObjectStorage {
     createUploadTarget: (input) => resolve().createUploadTarget(input),
     inspectObject: (key) => resolve().inspectObject(key),
     readHead: (key, bytes) => resolve().readHead(key, bytes),
+    readRange: (key, start, end) => resolve().readRange(key, start, end),
     copyObject: (input) => resolve().copyObject(input),
     createDownloadUrl: (key, input) => resolve().createDownloadUrl(key, input),
     deleteObject: (key) => resolve().deleteObject(key),

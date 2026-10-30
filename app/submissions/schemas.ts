@@ -2,6 +2,7 @@
 // server-only). Limits live here so the UI and the server agree. Failures are reduced to path + code before they
 // leave the server, never echoing what was submitted.
 import { z } from "zod";
+import { ALL_SCREENS } from "./windows.ts";
 import { REVIEW_DECISIONS } from "../db/schema/values.ts";
 import type { FieldIssue } from "./errors.ts";
 
@@ -16,7 +17,7 @@ export const titleSchema = z.string().trim().min(1).max(TITLE_MAX);
 export const descriptionSchema = z.string().trim().max(DESCRIPTION_MAX);
 
 export const windowSchema = z.object({
-  screenId: z.uuid(),
+  screenId: z.union([z.uuid(), z.literal(ALL_SCREENS)]),
   startAt: z.string().min(1).max(40),
   endAt: z.string().min(1).max(40),
   note: z.string().trim().max(NOTE_MAX).nullish(),

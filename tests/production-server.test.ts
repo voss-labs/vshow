@@ -649,6 +649,9 @@ describe("workflow routes over HTTP (production build, real sessions)", async ()
     const dl = await send(`/submissions/${ids.convener}/versions/${ids.convener}/file`);
     assert.equal(dl.status, 302);
     assert.equal(dl.headers.get("location"), "/login");
+    const pv = await send(`/submissions/${ids.convener}/versions/${ids.convener}/preview`);
+    assert.equal(pv.status, 302, "an anonymous preview request is refused too");
+    assert.equal(pv.headers.get("location"), "/login");
   });
 
   it(
@@ -761,7 +764,7 @@ describe("workflow routes over HTTP (production build, real sessions)", async ()
         },
       });
       assert.equal(bad.status, 422);
-      assert.match(bad.body, /end not after start/);
+      assert.match(bad.body, /the end must be after the start/);
       assert.equal(
         (await h.q("select 1 from screen_request where submission_id=$1", [submissionId])).length,
         2,
@@ -817,7 +820,7 @@ describe("workflow routes over HTTP (production build, real sessions)", async ()
       form: { intent: "submit" },
     });
     assert.equal(noMedia.status, 422);
-    assert.match(noMedia.body, /media required/);
+    assert.match(noMedia.body, /Upload the media before submitting/);
     assert.equal(await submissionStatus(submissionId), "DRAFT");
 
     // Stand in for a finalized upload (the real upload path needs object storage, tested separately).
@@ -869,6 +872,24 @@ describe("workflow routes over HTTP (production build, real sessions)", async ()
       assert.equal(dl.headers.get("location"), null, "no URL is ever produced");
       const stranger = await send(`/submissions/${submissionId}/versions/${vid}/file`, { as: "convenerb" });
       assert.equal(stranger.status, 404);
+
+      // The page offers an in-page preview that points at OUR route (never at a signed storage URL).
+      assert.ok(
+        page.body.includes(`/submissions/${submissionId}/versions/${vid}/preview`),
+        "the reviewer page previews the exact version under review",
+      );
+      assert.match(text, /Open full size/);
+      assert.doesNotMatch(page.body, /X-Amz-|\.neon\.tech/);
+      const pv = await send(`/submissions/${submissionId}/versions/${vid}/preview`, { as: "reviewer" });
+      assert.equal(pv.status, 503, "preview fails closed without storage, like a download");
+      assert.equal(pv.headers.get("location"), null, "no URL is ever produced");
+      assert.equal(
+        (await send(`/submissions/${submissionId}/versions/${vid}/preview`, { as: "convenerb" })).status,
+        404,
+      );
+      assert.equal((await send(`/submissions/${submissionId}/versions/${vid}/preview`, { as: "manager" })).status, 404);
+      const own = await send(`/submissions/${submissionId}`, { as: "convener" });
+      assert.ok(own.body.includes(`/submissions/${submissionId}/versions/${vid}/preview`), "the convener sees it too");
     },
   );
 
@@ -877,7 +898,7 @@ describe("workflow routes over HTTP (production build, real sessions)", async ()
       send(`/review/${submissionId}`, { method: "POST", as, form, origin });
     const noReason = await decide("reviewer", { revisionId, decision: "REJECTED", comment: "  " });
     assert.equal(noReason.status, 422);
-    assert.match(noReason.body, /required/);
+    assert.match(noReason.body, /comment or reason is required/);
     const noReason2 = await decide("reviewer", { revisionId, decision: "CHANGES_REQUESTED" });
     assert.equal(noReason2.status, 422);
     assert.equal((await decide("convener", { revisionId, decision: "APPROVED" })).status, 403);

@@ -111,7 +111,7 @@ describe("auth tables, identity triggers and upgrade safety (disposable local da
         }
         const r = runNode(["scripts/db-migrate.ts"], env());
         assert.equal(r.status, 0, r.stderr || r.stdout);
-        assert.match(r.stdout, /Applied 4 migration/);
+        assert.match(r.stdout, /Applied 5 migration/);
         await withClient(async (c2) => {
           const user = (await c2.query("select email, email_verified, image, is_active from app_user")).rows[0];
           assert.deepEqual(user, { email: "old@x.org", email_verified: false, image: null, is_active: true });

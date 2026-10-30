@@ -8,6 +8,13 @@
 import type { FieldIssue } from "./errors.ts";
 import { parseCampusDateTime } from "./time.ts";
 
+/** A window's screen may be this value: the server expands it to every active screen when the draft is saved. */
+export const ALL_SCREENS = "ALL";
+
+/** "All day" windows run from 00:00 on the first day to 23:59 on the last day (campus time). */
+export const ALL_DAY_START = "00:00";
+export const ALL_DAY_END = "23:59";
+
 export interface WindowInput {
   screenId: string;
   startAt: string;
@@ -46,6 +53,19 @@ export function parseWindows(
     }
   });
   return { windows: issues.length ? [] : windows, issues };
+}
+
+/**
+ * Replaces each ALL_SCREENS window with one window per active screen (same times and note). Runs after validation, so
+ * issue paths still refer to the windows the person entered.
+ */
+export function expandAllScreens<T extends { screenId: string }>(
+  windows: readonly T[],
+  activeScreenIds: readonly string[],
+): T[] {
+  return windows.flatMap((w) =>
+    w.screenId === ALL_SCREENS ? activeScreenIds.map((screenId) => ({ ...w, screenId })) : [w],
+  );
 }
 
 /** Numbers windows per screen (1, 2, ...) in the order given. */

@@ -2,6 +2,8 @@ import { Form, Link, redirect, useActionData } from "react-router";
 import type { Route } from "./+types/review.$id";
 import { assertSameOrigin, requireRole } from "../auth/authorize.server";
 import { AppShell } from "../components/app-header";
+import { MediaDetails } from "../components/media-details";
+import { MediaPreview } from "../components/media-preview";
 import { Notice, PageHeader, Section } from "../components/ui";
 import {
   AuditList,
@@ -66,6 +68,8 @@ export default function ReviewPage({ loaderData }: Route.ComponentProps) {
   const { submission: s, roles } = loaderData;
   const failure = useActionData<ActionFailure>();
   const rev = s.currentRevision;
+  // The exact media version this revision (and so any decision) applies to.
+  const reviewedVersion = rev ? s.versions.find((v) => v.id === rev.mediaVersionId) : undefined;
   return (
     <AppShell roles={roles}>
       <PageHeader
@@ -117,6 +121,16 @@ export default function ReviewPage({ loaderData }: Route.ComponentProps) {
                 </div>
                 <div>
                   <h3 className="eyebrow mb-3">Media</h3>
+                  {reviewedVersion && (
+                    <div className="mb-8">
+                      <MediaPreview key={reviewedVersion.id} submissionId={s.id} version={reviewedVersion} />
+                    </div>
+                  )}
+                  {reviewedVersion && (
+                    <div className="mb-8">
+                      <MediaDetails info={reviewedVersion.info} sizeBytes={reviewedVersion.sizeBytes} />
+                    </div>
+                  )}
                   <VersionList submissionId={s.id} versions={s.versions.filter((v) => v.id === rev.mediaVersionId)} />
                 </div>
               </div>

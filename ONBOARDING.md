@@ -68,7 +68,7 @@ npm run db:seed         # add fake test data and test users
 npm run dev             # start the app at http://localhost:5173
 ```
 
-Check the database anytime with `npm run db:health` (expect `5 applied, 0 pending`).
+Check the database anytime with `npm run db:health` (expect `6 applied, 0 pending`).
 
 ## 3. Sign in with the dev switcher
 

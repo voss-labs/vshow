@@ -38,6 +38,11 @@ export interface CreateDownloadUrlInput {
   filename: string;
   contentType: string;
   ttlSeconds: number;
+  /**
+   * "attachment" (default) makes the browser save the file; "inline" lets it display the file in an <img> or <video>
+   * (previews). Either way the content type is the validated one, never anything the uploader chose.
+   */
+  disposition?: "attachment" | "inline";
 }
 
 export interface ObjectStorage {
@@ -48,6 +53,8 @@ export interface ObjectStorage {
   inspectObject(key: string): Promise<ObjectInfo | null>;
   /** The first `bytes` bytes of an object (for file-signature checks). */
   readHead(key: string, bytes: number): Promise<Uint8Array>;
+  /** Bytes `start`..`endInclusive` of an object (for inspecting structure without reading the whole file). */
+  readRange(key: string, start: number, endInclusive: number): Promise<Uint8Array>;
   /** Server-side copy to a NEW key chosen by the server. */
   copyObject(input: { sourceKey: string; destinationKey: string; contentType: string }): Promise<void>;
   createDownloadUrl(key: string, input: CreateDownloadUrlInput): Promise<string>;

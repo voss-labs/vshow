@@ -4,6 +4,7 @@ import { getUserDetail, setMembership, setRole } from "../admin/users.server";
 import { assertSameOrigin, requireRole } from "../auth/authorize.server";
 import { ROLE_LABEL } from "../auth/landing";
 import { AppShell } from "../components/app-header";
+import { CommitteePicker } from "../components/committee-picker";
 import { Notice, PageHeader, Section } from "../components/ui";
 import { ErrorNotice, SubmitButton } from "../components/workflow-ui";
 import { ROLE_CODES } from "../db/schema/values";
@@ -40,6 +41,7 @@ export async function action({ request, context, params }: Route.ActionArgs) {
       case "set-membership":
         await setMembership(scope, user, params.id, {
           committeeId: form.get("committeeId"),
+          newCommitteeName: form.get("newCommitteeName"),
           membershipType: form.get("membershipType"),
           active: true,
         });
@@ -145,38 +147,22 @@ export default function AdminUser({ loaderData }: Route.ComponentProps) {
               ))}
             </ul>
           )}
-          {p.availableCommittees.length > 0 ? (
-            <Form method="post" className="flex flex-wrap items-end gap-4">
-              <input type="hidden" name="intent" value="set-membership" />
-              <div>
-                <label htmlFor="committeeId" className="label">
-                  Add to committee
-                </label>
-                <select id="committeeId" name="committeeId" required className="field" defaultValue="">
-                  <option value="" disabled>
-                    Choose a committee…
-                  </option>
-                  {p.availableCommittees.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="membershipType" className="label">
-                  As
-                </label>
-                <select id="membershipType" name="membershipType" className="field" defaultValue="CONVENER">
-                  <option value="CONVENER">Convener</option>
-                  <option value="MEMBER">Member</option>
-                </select>
-              </div>
-              <SubmitButton>Add</SubmitButton>
-            </Form>
-          ) : (
-            <p className="text-dim">Already a member of every active committee.</p>
-          )}
+          <Form method="post" className="flex flex-wrap items-end gap-4">
+            <input type="hidden" name="intent" value="set-membership" />
+            <div className="min-w-64 flex-1">
+              <CommitteePicker committees={p.availableCommittees} label="Add to committee" />
+            </div>
+            <div>
+              <label htmlFor="membershipType" className="label">
+                As
+              </label>
+              <select id="membershipType" name="membershipType" className="field" defaultValue="CONVENER">
+                <option value="CONVENER">Convener</option>
+                <option value="MEMBER">Member</option>
+              </select>
+            </div>
+            <SubmitButton>Add</SubmitButton>
+          </Form>
         </Section>
       </div>
     </AppShell>

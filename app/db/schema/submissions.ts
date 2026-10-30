@@ -14,6 +14,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import type { MediaAnalysis } from "../../media/analysis.ts";
 import { UPLOAD_STATUSES, WORKFLOW_STATUSES, sqlList } from "./values.ts";
 import { appUser } from "./identity.ts";
 import { committee, screen } from "./campus.ts";
@@ -91,6 +92,9 @@ export const mediaVersion = pgTable(
     checksumSha256: varchar("checksum_sha256", { length: 64 }),
     // Provider ETag of the FINAL object as validated at finalization (identifies the exact stored bytes).
     storageEtag: varchar("storage_etag", { length: 128 }),
+    // What the file was found to be at finalization (dimensions, aspect ratio, duration, codec, and the structural
+    // checks). Null for versions recorded before the analysis existed. Immutable like the rest of the row.
+    mediaInfo: jsonb("media_info").$type<MediaAnalysis>(),
     uploadedByUserId: uuid("uploaded_by_user_id")
       .notNull()
       .references(() => appUser.id),
@@ -102,6 +106,7 @@ export const mediaVersion = pgTable(
     // Target for composite FKs that must prove "version belongs to submission".
     unique("media_version_id_submission_unique").on(t.id, t.submissionId),
     check("media_version_size_positive", sql`${t.sizeBytes} > 0`),
+    check("media_version_info_object", sql`${t.mediaInfo} IS NULL OR jsonb_typeof(${t.mediaInfo}) = 'object'`),
     check("media_version_number_positive", sql`${t.versionNumber} >= 1`),
     index("media_version_submission_number_idx").on(t.submissionId, t.versionNumber.desc()),
   ],

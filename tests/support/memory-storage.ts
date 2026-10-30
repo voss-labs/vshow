@@ -17,7 +17,13 @@ interface Stored {
 }
 
 export type StorageMethod =
-  "createUploadTarget" | "inspectObject" | "readHead" | "copyObject" | "createDownloadUrl" | "deleteObject";
+  | "createUploadTarget"
+  | "inspectObject"
+  | "readHead"
+  | "readRange"
+  | "copyObject"
+  | "createDownloadUrl"
+  | "deleteObject";
 
 export interface MemoryStorage extends ObjectStorage {
   /** Every method call in order (method + key), for "never reached storage" assertions. */
@@ -33,6 +39,8 @@ export interface MemoryStorage extends ObjectStorage {
   failNext(method: StorageMethod, error?: Error): void;
   /** Resolve the key a download URL was created for. */
   keyOfDownloadUrl(url: string): string | undefined;
+  /** The options a download URL was created with (disposition, content type, lifetime). */
+  optionsOfDownloadUrl(url: string): CreateDownloadUrlInput | undefined;
 }
 
 const etagOf = (bytes: Uint8Array) => createHash("md5").update(bytes).digest("hex");
@@ -41,6 +49,7 @@ export function createMemoryStorage(): MemoryStorage {
   const objects = new Map<string, Stored>();
   const targets = new Map<string, { key: string; contentType: string; sizeBytes: number; expiresAt: number }>();
   const downloads = new Map<string, string>();
+  const downloadOptions = new Map<string, CreateDownloadUrlInput>();
   const failures = new Map<StorageMethod, Error>();
   const calls: MemoryStorage["calls"] = [];
 
@@ -101,6 +110,13 @@ export function createMemoryStorage(): MemoryStorage {
       return o.bytes.slice(0, bytes);
     },
 
+    async readRange(key, start, endInclusive) {
+      enter("readRange", key);
+      const o = objects.get(key);
+      if (!o) throw new Error("NoSuchKey");
+      return o.bytes.slice(start, endInclusive + 1);
+    },
+
     async copyObject({ sourceKey, destinationKey, contentType }) {
       enter("copyObject", destinationKey);
       const o = objects.get(sourceKey);
@@ -110,10 +126,11 @@ export function createMemoryStorage(): MemoryStorage {
       objects.set(destinationKey, { bytes: new Uint8Array(o.bytes), contentType });
     },
 
-    async createDownloadUrl(key: string, _input: CreateDownloadUrlInput) {
+    async createDownloadUrl(key: string, input: CreateDownloadUrlInput) {
       enter("createDownloadUrl", key);
       const url = `memory://download/${randomUUID()}`;
       downloads.set(url, key);
+      downloadOptions.set(url, input);
       return url;
     },
 
@@ -126,5 +143,6 @@ export function createMemoryStorage(): MemoryStorage {
       failures.set(method, error);
     },
     keyOfDownloadUrl: (url) => downloads.get(url),
+    optionsOfDownloadUrl: (url) => downloadOptions.get(url),
   };
 }

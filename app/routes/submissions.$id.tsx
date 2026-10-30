@@ -2,6 +2,8 @@ import { Form, Link, data, useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/submissions.$id";
 import { assertSameOrigin, requireRole } from "../auth/authorize.server";
 import { AppShell } from "../components/app-header";
+import { MediaDetails } from "../components/media-details";
+import { MediaPreview } from "../components/media-preview";
 import { Notice, PageHeader, Section } from "../components/ui";
 import { UploadPanel } from "../components/upload-panel";
 import { WindowsEditor } from "../components/windows-editor";
@@ -82,6 +84,7 @@ type ActionResult = ActionFailure | { ok: true; saved?: boolean; withdrawn?: boo
 
 export default function SubmissionPage({ loaderData }: Route.ComponentProps) {
   const { submission: s, screens, limits, roles, storageReady } = loaderData;
+  const currentVersion = s.versions.find((v) => v.isCurrent);
   const result = useActionData<ActionResult>();
   const nav = useNavigation();
   const busy = nav.state !== "idle";
@@ -216,6 +219,8 @@ export default function SubmissionPage({ loaderData }: Route.ComponentProps) {
 
         <Section id="media" title="Media">
           <div className="space-y-6">
+            {currentVersion && <MediaPreview key={currentVersion.id} submissionId={s.id} version={currentVersion} />}
+            {currentVersion && <MediaDetails info={currentVersion.info} sizeBytes={currentVersion.sizeBytes} />}
             <VersionList submissionId={s.id} versions={s.versions} />
             {s.canEdit &&
               (storageReady ? (

@@ -238,6 +238,29 @@ describe("Neon adapter (stubbed client, no network)", () => {
     assert.equal(u.pathname, `/vshow-media-dev/media/${SUB}/${VER}.png`);
   });
 
+  it("presigns an inline (preview) URL when asked, an attachment by default, with the validated content type", async () => {
+    const { storage } = make();
+    const key = finalKey(SUB, VER, "image/png");
+    const url = async (disposition?: "inline" | "attachment") =>
+      new URL(
+        await storage.createDownloadUrl(key, {
+          filename: "x.png",
+          contentType: "image/png",
+          ttlSeconds: 900,
+          disposition,
+        }),
+      );
+    assert.match(
+      String((await url()).searchParams.get("response-content-disposition")),
+      /^attachment; filename="x\.png"$/,
+    );
+    const inline = await url("inline");
+    assert.equal(inline.searchParams.get("response-content-disposition"), 'inline; filename="x.png"');
+    assert.equal(inline.searchParams.get("response-content-type"), "image/png");
+    assert.equal(inline.searchParams.get("X-Amz-Expires"), "900");
+    assert.equal(inline.pathname, `/vshow-media-dev/media/${SUB}/${VER}.png`);
+  });
+
   it("inspect returns metadata, or null for a missing object, and rethrows other errors", async () => {
     const { storage, on } = make();
     on(() => ({ ContentLength: 10, ContentType: "image/png", ETag: '"abc"' }));
@@ -356,6 +379,9 @@ describe("media policy", () => {
     assert.equal(policy.maxWindows, 25);
     assert.equal(policy.uploadUrlTtlSeconds, DEFAULT_MEDIA_POLICY.uploadUrlTtlSeconds);
     assert.deepEqual(invalid.sort(), ["DOWNLOAD_URL_TTL_SECONDS", "UPLOAD_URL_TTL_SECONDS"]);
+    assert.equal(policy.previewUrlTtlSeconds, 900, "a preview lives longer than a download so video can seek");
+    assert.equal(resolveMediaPolicy({ PREVIEW_URL_TTL_SECONDS: "1800" }).policy.previewUrlTtlSeconds, 1800);
+    assert.deepEqual(resolveMediaPolicy({ PREVIEW_URL_TTL_SECONDS: "5" }).invalid, ["PREVIEW_URL_TTL_SECONDS"]);
   });
 });
 

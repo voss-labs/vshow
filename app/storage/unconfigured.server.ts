@@ -12,6 +12,7 @@ export function createUnconfiguredStorage(onUse?: (reason: string) => void, reas
     createUploadTarget: async () => refuse(),
     inspectObject: async () => refuse(),
     readHead: async () => refuse(),
+    readRange: async () => refuse(),
     copyObject: async () => refuse(),
     createDownloadUrl: async () => refuse(),
     deleteObject: async () => refuse(),

@@ -235,7 +235,7 @@ describe("db:recreate:local against disposable local databases", async () => {
   it("the migration tooling can migrate the freshly recreated empty database", opts, async () => {
     const r = runNode(["scripts/db-migrate.ts"], env());
     assert.equal(r.status, 0, r.stderr + r.stdout);
-    assert.match(r.stdout, /Applied 5 migration/);
+    assert.match(r.stdout, /Applied 6 migration/);
   });
 });
 

@@ -105,6 +105,15 @@ export function createNeonStorage(config: NeonStorageConfig, client: S3Like = cr
       return all.subarray(0, bytes); // a store that ignores Range must not make us keep the whole object
     },
 
+    async readRange(key: string, start: number, endInclusive: number): Promise<Uint8Array> {
+      const out = await client.send(
+        new GetObjectCommand({ Bucket, Key: key, Range: `bytes=${start}-${endInclusive}` }),
+      );
+      if (!out.Body) return new Uint8Array();
+      const all = await out.Body.transformToByteArray();
+      return all.subarray(0, endInclusive - start + 1); // a store that ignores Range must not make us keep more
+    },
+
     async copyObject({ sourceKey, destinationKey, contentType }): Promise<void> {
       const source = [Bucket, ...sourceKey.split("/")].map(encodeURIComponent).join("/");
       await client.send(
@@ -120,14 +129,14 @@ export function createNeonStorage(config: NeonStorageConfig, client: S3Like = cr
 
     async createDownloadUrl(
       key: string,
-      { filename, contentType, ttlSeconds }: CreateDownloadUrlInput,
+      { filename, contentType, ttlSeconds, disposition = "attachment" }: CreateDownloadUrlInput,
     ): Promise<string> {
       return getSignedUrl(
         presignClient,
         new GetObjectCommand({
           Bucket,
           Key: key,
-          ResponseContentDisposition: `attachment; filename="${dispositionName(filename)}"`,
+          ResponseContentDisposition: `${disposition}; filename="${dispositionName(filename)}"`,
           ResponseContentType: contentType,
         }),
         { expiresIn: ttlSeconds },

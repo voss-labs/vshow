@@ -101,6 +101,40 @@ describe("creating drafts: committee ownership and roles", () => {
 });
 
 describe("requested windows (overlaps are allowed)", () => {
+  it("expands an All screens window to every ACTIVE screen, and stores all-day times as given", opts, async () => {
+    const s = await newDraft();
+    const a = await h.actor("convener");
+    await saveDraft(h.deps, a, s.id, {
+      title: "Poster",
+      windows: [{ screenId: "ALL", startAt: "2030-02-01T00:00", endAt: "2030-02-03T23:59", note: "all" }],
+    });
+    const rows = await h.q<{ screen: string; start: string; end: string }>(
+      "select s.code screen, to_char(r.preferred_start_at at time zone 'Asia/Kolkata','YYYY-MM-DD HH24:MI') start, to_char(r.preferred_end_at at time zone 'Asia/Kolkata','YYYY-MM-DD HH24:MI') \"end\" from screen_request r join screen s on s.id=r.screen_id where r.submission_id=$1 order by s.code",
+      [s.id],
+    );
+    assert.deepEqual(
+      rows.map((r) => `${r.screen} ${r.start} -> ${r.end}`),
+      ["canteen 2030-02-01 00:00 -> 2030-02-03 23:59", "lobby 2030-02-01 00:00 -> 2030-02-03 23:59"],
+      "the inactive library screen is not included",
+    );
+  });
+
+  it("still rejects an unknown screen id, and an invalid window beside an All screens one", opts, async () => {
+    const s = await newDraft();
+    const a = await h.actor("convener");
+    await assert.rejects(
+      saveDraft(h.deps, a, s.id, { title: "Poster", windows: [win("00000000-0000-4000-8000-000000000000")] }),
+      (e: unknown) => e instanceof WorkflowError && e.code === "validation_failed",
+    );
+    await assert.rejects(
+      saveDraft(h.deps, a, s.id, {
+        title: "Poster",
+        windows: [{ screenId: "ALL", startAt: "2030-02-02T10:00", endAt: "2030-02-01T10:00" }],
+      }),
+      (e: unknown) => e instanceof WorkflowError && e.code === "validation_failed",
+    );
+  });
+
   it(
     "accepts identical and overlapping windows, on the same screen and across screens, and numbers slots per screen",
     opts,
